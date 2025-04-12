@@ -1,50 +1,88 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <ctype.h>
-#include <stdint.h>
 
-// Base64 decoding table
-const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+#define MAX_KEYSIZE 40
+#define MIN_KEYSIZE 2
+#define NUM_BLOCKS 4
 
-int base64_char_value(char c) {
-    const char* ptr = strchr(base64_table, c);
-    if (ptr) return ptr - base64_table;
-    return -1;
+// Frequência de letras em português
+float pt_letter_freq[256];
+
+void init_pt_frequency_table() {
+    memset(pt_letter_freq, 0, sizeof(pt_letter_freq));
+    pt_letter_freq[' '] = 0.183;
+    pt_letter_freq['a'] = 0.1463; pt_letter_freq['A'] = 0.1463;
+    pt_letter_freq['e'] = 0.1257; pt_letter_freq['E'] = 0.1257;
+    pt_letter_freq['o'] = 0.0973; pt_letter_freq['O'] = 0.0973;
+    pt_letter_freq['s'] = 0.0781; pt_letter_freq['S'] = 0.0781;
+    pt_letter_freq['r'] = 0.0653; pt_letter_freq['R'] = 0.0653;
+    pt_letter_freq['n'] = 0.0494; pt_letter_freq['N'] = 0.0494;
+    pt_letter_freq['i'] = 0.0618; pt_letter_freq['I'] = 0.0618;
+    pt_letter_freq['d'] = 0.0499; pt_letter_freq['D'] = 0.0499;
+    pt_letter_freq['m'] = 0.0474; pt_letter_freq['M'] = 0.0474;
+    pt_letter_freq['u'] = 0.0463; pt_letter_freq['U'] = 0.0463;
+    pt_letter_freq['t'] = 0.0434; pt_letter_freq['T'] = 0.0434;
+    pt_letter_freq['c'] = 0.0388; pt_letter_freq['C'] = 0.0388;
+    pt_letter_freq['l'] = 0.0278; pt_letter_freq['L'] = 0.0278;
+    pt_letter_freq['p'] = 0.0252; pt_letter_freq['P'] = 0.0252;
+    pt_letter_freq['v'] = 0.0167; pt_letter_freq['V'] = 0.0167;
+    pt_letter_freq['g'] = 0.0130; pt_letter_freq['G'] = 0.0130;
+    pt_letter_freq['h'] = 0.0128; pt_letter_freq['H'] = 0.0128;
+    pt_letter_freq['q'] = 0.0120; pt_letter_freq['Q'] = 0.0120;
+    pt_letter_freq['b'] = 0.0104; pt_letter_freq['B'] = 0.0104;
+    pt_letter_freq['f'] = 0.0102; pt_letter_freq['F'] = 0.0102;
+    pt_letter_freq['z'] = 0.0047; pt_letter_freq['Z'] = 0.0047;
+    pt_letter_freq['j'] = 0.0040; pt_letter_freq['J'] = 0.0040;
+    pt_letter_freq['x'] = 0.0021; pt_letter_freq['X'] = 0.0021;
+    pt_letter_freq['k'] = 0.0002; pt_letter_freq['K'] = 0.0002;
+    pt_letter_freq['w'] = 0.0001; pt_letter_freq['W'] = 0.0001;
+    pt_letter_freq['y'] = 0.0001; pt_letter_freq['Y'] = 0.0001;
 }
 
-// Decodifica uma string base64
+// Base64
+unsigned char base64_table[256];
+
+void init_base64_table() {
+    memset(base64_table, 0x80, 256);
+    for (int i = 'A'; i <= 'Z'; i++) base64_table[i] = i - 'A';
+    for (int i = 'a'; i <= 'z'; i++) base64_table[i] = i - 'a' + 26;
+    for (int i = '0'; i <= '9'; i++) base64_table[i] = i - '0' + 52;
+    base64_table['+'] = 62;
+    base64_table['/'] = 63;
+    base64_table['='] = 0;
+}
+
 unsigned char* base64_decode(const char* input, size_t* out_len) {
+    init_base64_table();
     size_t len = strlen(input);
-    size_t padding = 0;
-    if (len >= 1 && input[len - 1] == '=') padding++;
-    if (len >= 2 && input[len - 2] == '=') padding++;
+    unsigned char* output = malloc(len * 3 / 4);
+    if (!output) return NULL;
 
-    *out_len = (len * 3) / 4 - padding;
-    unsigned char* decoded = malloc(*out_len);
-    if (!decoded) return NULL;
+    size_t i = 0, j = 0;
+    while (i < len) {
+        unsigned char a = base64_table[(unsigned char)input[i++]];
+        unsigned char b = base64_table[(unsigned char)input[i++]];
+        unsigned char c = base64_table[(unsigned char)input[i++]];
+        unsigned char d = base64_table[(unsigned char)input[i++]];
 
-    for (size_t i = 0, j = 0; i < len;) {
-        int sextet_a = base64_char_value(input[i++]);
-        int sextet_b = base64_char_value(input[i++]);
-        int sextet_c = base64_char_value(input[i++]);
-        int sextet_d = base64_char_value(input[i++]);
+        if ((a | b | c | d) & 0x80) continue;
 
-        uint32_t triple = (sextet_a << 18) + (sextet_b << 12) +
-                          ((sextet_c & 63) << 6) + (sextet_d & 63);
-
-        if (j < *out_len) decoded[j++] = (triple >> 16) & 0xFF;
-        if (j < *out_len) decoded[j++] = (triple >> 8) & 0xFF;
-        if (j < *out_len) decoded[j++] = triple & 0xFF;
+        output[j++] = (a << 2) | (b >> 4);
+        if (input[i - 2] != '=') output[j++] = (b << 4) | (c >> 2);
+        if (input[i - 1] != '=') output[j++] = (c << 6) | d;
     }
 
-    return decoded;
+    *out_len = j;
+    return output;
 }
 
-// Calcula a distância de Hamming entre dois buffers
-int hamming_distance(const unsigned char* a, const unsigned char* b, size_t len) {
+// Hamming distance
+int hamming_distance(const unsigned char* a, const unsigned char* b, int len) {
     int dist = 0;
-    for (size_t i = 0; i < len; i++) {
+    for (int i = 0; i < len; i++) {
         unsigned char val = a[i] ^ b[i];
         while (val) {
             dist += val & 1;
@@ -54,108 +92,119 @@ int hamming_distance(const unsigned char* a, const unsigned char* b, size_t len)
     return dist;
 }
 
-// Adivinha o tamanho da chave baseado na distância de Hamming
-int estimate_key_size(const unsigned char* data, size_t len) {
-    int best_key_size = 2;
-    float best_distance = 1e9;
+float normalized_distance(const unsigned char* data, int keysize) {
+    float total = 0.0;
+    for (int i = 0; i < NUM_BLOCKS - 1; i++) {
+        const unsigned char* block1 = data + (i * keysize);
+        const unsigned char* block2 = data + ((i + 1) * keysize);
+        total += hamming_distance(block1, block2, keysize) / (float)keysize;
+    }
+    return total / (NUM_BLOCKS - 1);
+}
 
-    for (int key_size = 2; key_size <= 40; key_size++) {
-        if (key_size * 4 > len) break;
+int estimate_keysize(const unsigned char* data, int len) {
+    float min_score = INFINITY;
+    int best_keysize = 0;
 
-        int d1 = hamming_distance(data, data + key_size, key_size);
-        int d2 = hamming_distance(data + key_size, data + 2 * key_size, key_size);
-        int d3 = hamming_distance(data + 2 * key_size, data + 3 * key_size, key_size);
-        int d4 = hamming_distance(data + 3 * key_size, data + 4 * key_size, key_size);
-
-        float avg = (d1 + d2 + d3 + d4) / 4.0f / key_size;
-
-        if (avg < best_distance) {
-            best_distance = avg;
-            best_key_size = key_size;
+    for (int keysize = MIN_KEYSIZE; keysize <= MAX_KEYSIZE; keysize++) {
+        if (keysize * NUM_BLOCKS >= len) break;
+        float score = normalized_distance(data, keysize);
+        if (score < min_score) {
+            min_score = score;
+            best_keysize = keysize;
         }
     }
 
-    return best_key_size;
+    return best_keysize;
 }
 
-// Análise de frequência para identificar a melhor letra da chave
-unsigned char break_single_byte_xor(const unsigned char* block, size_t len) {
-    int max_score = -1;
+// Análise de frequência com tabela pt-BR
+float score_text_pt(const unsigned char* data, int len) {
+    float score = 0;
+    for (int i = 0; i < len; i++) {
+        score += pt_letter_freq[data[i]];
+    }
+    return score;
+}
+
+unsigned char break_single_byte_xor_pt(const unsigned char* data, int len) {
+    float best_score = -1;
     unsigned char best_key = 0;
 
     for (int k = 0; k < 256; k++) {
-        int score = 0;
-        for (size_t i = 0; i < len; i++) {
-            unsigned char c = block[i] ^ k;
-            if (isalpha(c) || isspace(c)) score++;
-        }
-        if (score > max_score) {
-            max_score = score;
+        unsigned char* decoded = malloc(len);
+        for (int i = 0; i < len; i++) decoded[i] = data[i] ^ k;
+        float s = score_text_pt(decoded, len);
+        if (s > best_score) {
+            best_score = s;
             best_key = k;
         }
+        free(decoded);
     }
+
     return best_key;
 }
 
-// Quebra a cifra com XOR de chave repetida
-unsigned char* break_repeating_key_xor(const unsigned char* data, size_t len, int key_size, unsigned char* key_out) {
-    for (int i = 0; i < key_size; i++) {
-        size_t block_len = (len - i + key_size - 1) / key_size;
-        unsigned char* block = malloc(block_len);
-        for (size_t j = 0; j < block_len; j++) {
-            if (i + j * key_size < len)
-                block[j] = data[i + j * key_size];
-        }
-        key_out[i] = break_single_byte_xor(block, block_len);
-        free(block);
+void xor_decrypt(const unsigned char* data, int len, const unsigned char* key, int keysize) {
+    printf("\nMensagem decifrada:\n");
+    for (int i = 0; i < len; i++) {
+        putchar(data[i] ^ key[i % keysize]);
     }
-
-    unsigned char* decrypted = malloc(len + 1);
-    for (size_t i = 0; i < len; i++) {
-        decrypted[i] = data[i] ^ key_out[i % key_size];
-    }
-    decrypted[len] = '\0';
-    return decrypted;
+    printf("\n");
 }
 
 int main() {
-    FILE* f = fopen("cifra.base64", "r");
-    if (!f) {
+    printf("Iniciando análise...\n");
+    init_pt_frequency_table();
+
+    FILE* fp = fopen("cifra.base64", "rb");
+    if (!fp) {
         perror("Erro ao abrir o arquivo");
         return 1;
     }
 
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    rewind(fp);
 
-    char* base64_data = malloc(size + 1);
-    fread(base64_data, 1, size, f);
-    base64_data[size] = '\0';
-    fclose(f);
+    char* base64_data = malloc(fsize + 1);
+    fread(base64_data, 1, fsize, fp);
+    base64_data[fsize] = '\0';
+    fclose(fp);
 
     size_t decoded_len;
     unsigned char* decoded = base64_decode(base64_data, &decoded_len);
+    free(base64_data);
+
     if (!decoded) {
-        printf("Falha na decodificação base64\n");
+        printf("Erro ao decodificar base64\n");
         return 1;
     }
 
-    int key_size = estimate_key_size(decoded, decoded_len);
-    printf("Tamanho estimado da chave: %d\n", key_size);
+    int keysize = estimate_keysize(decoded, decoded_len);
+    printf("Tamanho estimado da chave: %d\n", keysize);
 
-    unsigned char* key = malloc(key_size);
-    unsigned char* plaintext = break_repeating_key_xor(decoded, decoded_len, key_size, key);
+    unsigned char* key = malloc(keysize);
+    for (int i = 0; i < keysize; i++) {
+        int count = 0;
+        for (int j = i; j < decoded_len; j += keysize) count++;
 
-    printf("Chave descoberta (hex): ");
-    for (int i = 0; i < key_size; i++) {
-        printf("%02x ", key[i]);
+        unsigned char* block = malloc(count);
+        int idx = 0;
+        for (int j = i; j < decoded_len; j += keysize)
+            block[idx++] = decoded[j];
+
+        key[i] = break_single_byte_xor_pt(block, count);
+        free(block);
     }
-    printf("\n\nTexto decifrado:\n%s\n", plaintext);
 
-    free(base64_data);
+    printf("Chave estimada: ");
+    for (int i = 0; i < keysize; i++) printf("%c", isprint(key[i]) ? key[i] : '.');
+    printf("\n");
+
+    xor_decrypt(decoded, decoded_len, key, keysize);
+
     free(decoded);
     free(key);
-    free(plaintext);
     return 0;
 }
