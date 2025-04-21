@@ -154,7 +154,7 @@ void xor_decrypt(const unsigned char* data, int len, const unsigned char* key, i
 }
 
 int main() {
-    printf("Iniciando análise...\n");
+    printf("Iniciando analise...\n");
     init_pt_frequency_table();
 
     FILE* fp = fopen("cifra.base64", "rb");
